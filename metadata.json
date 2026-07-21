@@ -1,0 +1,6 @@
+{
+  "name": "Web Screenshot Pro",
+  "description": "Convert webpages to high-resolution images or PDFs with custom region capture.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
