@@ -11,4 +11,10 @@ export interface CaptureRequest {
   pdfMargin?: string;
   splitLongImage?: boolean;
   splitMaxHeight?: number;
+  watermarkEnabled?: boolean;
+  watermarkName?: string;
+  watermarkText?: string;
+  watermarkLogo?: string;
+  watermarkQr?: string;
+  watermarkPosition?: 'top' | 'bottom';
 }

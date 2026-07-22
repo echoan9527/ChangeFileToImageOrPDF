@@ -29,6 +29,15 @@ interface ZipFile {
   data: Buffer;
 }
 
+interface WatermarkOptions {
+  enabled?: boolean;
+  name?: string;
+  text?: string;
+  logo?: string;
+  qr?: string;
+  position?: 'top' | 'bottom';
+}
+
 const MAX_CHUNK_PHYSICAL_HEIGHT = 8000;
 const DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT = 12000;
 
@@ -41,6 +50,212 @@ async function getPageHeight(page: Page) {
       document.body.offsetHeight
     );
   });
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function bufferFromDataUrl(dataUrl?: string) {
+  if (!dataUrl) return null;
+  const match = dataUrl.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+  if (!match) return null;
+  return Buffer.from(match[1], 'base64');
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function estimateTextWidth(value: string, fontSize: number) {
+  let units = 0;
+
+  for (const char of value) {
+    if (/[\u4e00-\u9fff\uff00-\uffef]/.test(char)) {
+      units += 1;
+    } else if (/[A-Z@#]/.test(char)) {
+      units += 0.7;
+    } else if (/[il.,:;|]/.test(char)) {
+      units += 0.32;
+    } else if (/\s/.test(char)) {
+      units += 0.34;
+    } else {
+      units += 0.56;
+    }
+  }
+
+  return Math.ceil(units * fontSize);
+}
+
+async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: ImageFormat, options?: WatermarkOptions) {
+  if (!options?.enabled) {
+    return buffer;
+  }
+
+  const input = Buffer.from(buffer);
+  const meta = await sharp(input).metadata();
+  const width = meta.width || 0;
+  const height = meta.height || 0;
+
+  if (!width || !height) {
+    return input;
+  }
+
+  const nameRaw = options.name?.trim() || '';
+  const textRaw = options.text?.trim() || '';
+  const logoBuffer = bufferFromDataUrl(options.logo);
+  const qrBuffer = bufferFromDataUrl(options.qr);
+  const hasName = !!nameRaw;
+  const hasText = !!textRaw;
+  const hasLogo = !!logoBuffer;
+  const hasQr = !!qrBuffer;
+
+  if (!hasName && !hasText && !hasLogo && !hasQr) {
+    return input;
+  }
+
+  const position = options.position === 'top' ? 'top' : 'bottom';
+  const footerHeight = Math.round(clamp(width * 0.12, 150, 260));
+  const paddingX = Math.round(clamp(width * 0.045, 44, 96));
+  const avatarSize = Math.round(clamp(footerHeight * 0.52, 56, 120));
+  const qrSize = Math.round(clamp(footerHeight * 0.56, 72, 132));
+  const gap = Math.round(clamp(footerHeight * 0.07, 8, 12));
+  const nameFontSize = Math.round(clamp(width * 0.022, 24, 40));
+  const textFontSize = Math.round(clamp(width * 0.014, 16, 26));
+  const lineGap = Math.round(clamp(footerHeight * 0.1, 8, 14));
+  const showAvatar = hasLogo || hasName;
+  const showText = hasName || hasText;
+  const availableWidth = Math.max(0, width - paddingX * 2);
+  const avatarWidth = showAvatar ? avatarSize : 0;
+  const qrWidth = hasQr ? qrSize : 0;
+  const leadingGap = showAvatar && (showText || hasQr) ? gap : 0;
+  const trailingGap = showText && hasQr ? gap : 0;
+  const measuredTextWidth = Math.max(
+    hasName ? estimateTextWidth(nameRaw, nameFontSize) : 0,
+    hasText ? estimateTextWidth(textRaw, textFontSize) : 0
+  );
+  let textBlockWidth = showText ? Math.round(clamp(measuredTextWidth, 120, 460)) : 0;
+
+  if (showText) {
+    const nonTextWidth = avatarWidth + leadingGap + trailingGap + qrWidth;
+    textBlockWidth = Math.min(textBlockWidth, Math.max(140, availableWidth - nonTextWidth));
+  }
+
+  const totalWidth = avatarWidth + leadingGap + (showText ? textBlockWidth : 0) + trailingGap + qrWidth;
+  const startX = Math.max(paddingX, Math.round((width - totalWidth) / 2));
+  const centerY = Math.round(footerHeight / 2);
+  const avatarTop = Math.round((footerHeight - avatarSize) / 2);
+  const qrTop = Math.round((footerHeight - qrSize) / 2);
+  let cursorX = startX;
+  let avatarLeft = 0;
+  let textLeft = 0;
+  let qrLeft = 0;
+
+  if (showAvatar) {
+    avatarLeft = cursorX;
+    cursorX += avatarWidth + leadingGap;
+  }
+
+  if (showText) {
+    textLeft = cursorX;
+    cursorX += textBlockWidth;
+    cursorX += trailingGap;
+  }
+
+  if (hasQr) {
+    qrLeft = cursorX;
+  }
+
+  const lineY = position === 'top' ? footerHeight - 0.5 : 0.5;
+  const nameY = showText && hasName && hasText ? centerY - Math.round((textFontSize + lineGap) / 2) : centerY;
+  const textY = showText && hasName && hasText ? centerY + Math.round((nameFontSize + lineGap) / 2) : centerY;
+  const nameLengthAttr = hasName && estimateTextWidth(nameRaw, nameFontSize) > textBlockWidth
+    ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  const textLengthAttr = hasText && estimateTextWidth(textRaw, textFontSize) > textBlockWidth
+    ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
+    : '';
+  const footerSvg = Buffer.from(`
+    <svg width="${width}" height="${footerHeight}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#ffffff"/>
+      <line x1="${paddingX}" y1="${lineY}" x2="${width - paddingX}" y2="${lineY}" stroke="#e5e7eb" stroke-width="1"/>
+      ${
+        showText && hasName
+          ? `<text x="${textLeft}" y="${nameY}" dominant-baseline="middle" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${nameFontSize}" font-weight="700" fill="#111827"${nameLengthAttr}>${escapeXml(nameRaw)}</text>`
+          : ''
+      }
+      ${
+        showText && hasText
+          ? `<text x="${textLeft}" y="${textY}" dominant-baseline="middle" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${textFontSize}" font-weight="500" fill="#6b7280"${textLengthAttr}>${escapeXml(textRaw)}</text>`
+          : ''
+      }
+    </svg>
+  `);
+
+  const composites: Array<{ input: Buffer; top: number; left: number }> = [
+    {
+      input: footerSvg,
+      top: position === 'top' ? 0 : height,
+      left: 0,
+    },
+  ];
+
+  if (hasLogo) {
+    const logo = await sharp(logoBuffer!)
+      .resize(avatarSize, avatarSize, { fit: 'cover' })
+      .png()
+      .toBuffer();
+    composites.push({
+      input: logo,
+      top: position === 'top' ? avatarTop : height + avatarTop,
+      left: avatarLeft,
+    });
+  } else if (hasName) {
+    const placeholder = Buffer.from(`
+      <svg width="${avatarSize}" height="${avatarSize}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" rx="${Math.round(avatarSize * 0.22)}" fill="#eff6ff"/>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, system-ui, sans-serif" font-size="${Math.round(avatarSize * 0.42)}" font-weight="800" fill="#2563eb">${escapeXml(nameRaw.replace(/^@/, '').slice(0, 1).toUpperCase() || 'A')}</text>
+      </svg>
+    `);
+    composites.push({
+      input: placeholder,
+      top: position === 'top' ? avatarTop : height + avatarTop,
+      left: avatarLeft,
+    });
+  }
+
+  if (hasQr && qrBuffer) {
+    const qr = await sharp(qrBuffer)
+      .resize(qrSize, qrSize, { fit: 'contain', background: '#ffffff' })
+      .png()
+      .toBuffer();
+    composites.push({
+      input: qr,
+      top: position === 'top' ? qrTop : height + qrTop,
+      left: qrLeft,
+    });
+  }
+
+  return sharp(input)
+    .extend(
+      position === 'top'
+        ? {
+            top: footerHeight,
+            background: { r: 255, g: 255, b: 255, alpha: 1 },
+          }
+        : {
+            bottom: footerHeight,
+            background: { r: 255, g: 255, b: 255, alpha: 1 },
+          }
+    )
+    .composite(composites)
+    .toFormat(format === 'jpeg' ? 'jpeg' : 'png', format === 'jpeg' ? { quality: 92 } : {})
+    .toBuffer();
 }
 
 function crc32(buffer: Buffer) {
@@ -323,8 +538,9 @@ async function captureSplitImages(page: Page, options: {
   deviceScaleFactor: number;
   format: ImageFormat;
   splitMaxHeight: number;
+  watermark?: WatermarkOptions;
 }) {
-  const { area, selector, deviceScaleFactor, format } = options;
+  const { area, selector, deviceScaleFactor, format, watermark } = options;
   const maxPhysicalHeight = Math.max(2000, options.splitMaxHeight || DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT);
   const maxPartHeight = Math.max(1, Math.floor(maxPhysicalHeight / deviceScaleFactor));
   const { points, avoidRanges } = await getSmartSplitHints(page, {
@@ -356,10 +572,11 @@ async function captureSplitImages(page: Page, options: {
       deviceScaleFactor,
       format,
     });
+    const finalBuffer = await applySignatureWatermark(buffer, format, watermark);
 
     files.push({
       name: `part-${String(index + 1).padStart(pad, '0')}.${format}`,
-      data: Buffer.from(buffer),
+      data: Buffer.from(finalBuffer),
     });
   }
 
@@ -514,7 +731,21 @@ async function startServer() {
       pdfMargin = '0px',
       splitLongImage = false,
       splitMaxHeight = DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT,
+      watermarkEnabled = false,
+      watermarkName,
+      watermarkText,
+      watermarkLogo,
+      watermarkQr,
+      watermarkPosition = 'bottom',
     } = req.body;
+    const watermark: WatermarkOptions = {
+      enabled: watermarkEnabled,
+      name: watermarkName,
+      text: watermarkText,
+      logo: watermarkLogo,
+      qr: watermarkQr,
+      position: watermarkPosition === 'top' ? 'top' : 'bottom',
+    };
 
     if (!url && !htmlContent) {
       return res.status(400).json({ error: 'URL or HTML Content is required' });
@@ -599,6 +830,7 @@ async function startServer() {
                   deviceScaleFactor,
                   format: format as ImageFormat,
                   splitMaxHeight,
+                  watermark,
                 })
               : await captureElementImage(element, {
                   page,
@@ -626,6 +858,7 @@ async function startServer() {
                 deviceScaleFactor,
                 format: format as ImageFormat,
                 splitMaxHeight,
+                watermark,
               })
             : await captureFullPageImage(page, {
                 width,
@@ -641,6 +874,9 @@ async function startServer() {
         } else {
           resultBuffer = await page.screenshot({ type: format as any, fullPage: false });
           res.setHeader('X-Capture-Strategy', 'viewport');
+        }
+        if (!(splitLongImage && (selector || fullPage))) {
+          resultBuffer = await applySignatureWatermark(resultBuffer, format as ImageFormat, watermark);
         }
         contentType = splitLongImage && (selector || fullPage) ? 'application/zip' : `image/${format}`;
       }

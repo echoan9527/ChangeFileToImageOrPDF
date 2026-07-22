@@ -651,7 +651,11 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mdFileInputRef = useRef<HTMLInputElement>(null);
   const customTemplateInputRef = useRef<HTMLInputElement>(null);
+  const watermarkLogoInputRef = useRef<HTMLInputElement>(null);
+  const watermarkQrInputRef = useRef<HTMLInputElement>(null);
   const [platformPreset, setPlatformPreset] = useState<PlatformPreset>('custom');
+  const [watermarkLogoName, setWatermarkLogoName] = useState<string | null>(null);
+  const [watermarkQrName, setWatermarkQrName] = useState<string | null>(null);
 
   const [request, setRequest] = useState<CaptureRequest>({
     url: '',
@@ -664,6 +668,8 @@ export default function App() {
     pdfMargin: '0px',
     splitLongImage: false,
     splitMaxHeight: 12000,
+    watermarkEnabled: false,
+    watermarkPosition: 'bottom',
   });
   
   const [captureType, setCaptureType] = useState<CaptureType>('full');
@@ -801,6 +807,42 @@ export default function App() {
   const handleCustomTemplateFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       handleCustomTemplateSelect(e.target.files[0]);
+    }
+  };
+
+  const handleWatermarkImageSelect = (file: File, type: 'logo' | 'qr') => {
+    if (!file.type.startsWith('image/')) {
+      setError(t.invalidImage);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      setRequest(prev => ({
+        ...prev,
+        watermarkEnabled: true,
+        ...(type === 'logo' ? { watermarkLogo: content } : { watermarkQr: content }),
+      }));
+      if (type === 'logo') {
+        setWatermarkLogoName(file.name);
+      } else {
+        setWatermarkQrName(file.name);
+      }
+      setError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleWatermarkLogoInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleWatermarkImageSelect(e.target.files[0], 'logo');
+    }
+  };
+
+  const handleWatermarkQrInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleWatermarkImageSelect(e.target.files[0], 'qr');
     }
   };
 
@@ -1483,6 +1525,106 @@ export default function App() {
                         <span className="pr-3 text-xs text-gray-400">px</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">{t.splitMaxHeightDesc}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {request.format !== 'pdf' && (
+                <div className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+                  <label className="flex items-start justify-between gap-3 p-4 cursor-pointer bg-gray-50/70 border-b border-gray-100">
+                    <span>
+                      <span className="block text-sm font-semibold text-gray-900">{t.watermark}</span>
+                      <span className="block text-xs text-gray-500 mt-1 leading-relaxed">{t.watermarkDesc}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={!!request.watermarkEnabled}
+                      onChange={(e) => updateRequestManually({ watermarkEnabled: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded shrink-0"
+                    />
+                  </label>
+
+                  {request.watermarkEnabled && (
+                    <div className="p-4 space-y-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-2">{t.watermarkPosition}</label>
+                        <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-1">
+                          {(['top', 'bottom'] as const).map((position) => (
+                            <button
+                              key={position}
+                              type="button"
+                              onClick={() => updateRequestManually({ watermarkPosition: position })}
+                              className={`px-3 py-1.5 text-xs font-medium rounded-sm transition-colors ${
+                                request.watermarkPosition === position
+                                  ? 'bg-blue-600 text-white shadow-sm'
+                                  : 'text-gray-600 hover:text-gray-900 hover:bg-white'
+                              }`}
+                            >
+                              {position === 'top' ? t.watermarkPositionTop : t.watermarkPositionBottom}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">{t.watermarkName}</label>
+                          <input
+                            type="text"
+                            value={request.watermarkName || ''}
+                            onChange={(e) => updateRequestManually({ watermarkName: e.target.value })}
+                            placeholder={t.watermarkNamePlaceholder}
+                            className="block w-full px-3 py-2 border border-gray-200 rounded-md sm:text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">{t.watermarkText}</label>
+                          <input
+                            type="text"
+                            value={request.watermarkText || ''}
+                            onChange={(e) => updateRequestManually({ watermarkText: e.target.value })}
+                            placeholder={t.watermarkTextPlaceholder}
+                            className="block w-full px-3 py-2 border border-gray-200 rounded-md sm:text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => watermarkLogoInputRef.current?.click()}
+                          className="border border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-300 hover:bg-blue-50/40 transition-colors"
+                        >
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={watermarkLogoInputRef}
+                            onChange={handleWatermarkLogoInput}
+                          />
+                          <UploadCloud className="w-6 h-6 mx-auto mb-1 text-gray-400" />
+                          <span className="block text-sm font-medium text-gray-700">{watermarkLogoName || t.uploadLogo}</span>
+                          <span className="block text-xs text-gray-400 mt-1">{t.watermarkLogo}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => watermarkQrInputRef.current?.click()}
+                          className="border border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-300 hover:bg-blue-50/40 transition-colors"
+                        >
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            ref={watermarkQrInputRef}
+                            onChange={handleWatermarkQrInput}
+                          />
+                          <UploadCloud className="w-6 h-6 mx-auto mb-1 text-gray-400" />
+                          <span className="block text-sm font-medium text-gray-700">{watermarkQrName || t.uploadQr}</span>
+                          <span className="block text-xs text-gray-400 mt-1">{t.watermarkQr}</span>
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
