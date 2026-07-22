@@ -6,6 +6,27 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
 export type MarkdownTheme = 'github' | 'editorial' | 'nordic' | 'retro' | 'custom';
+type PlatformPreset = 'custom' | 'weibo' | 'xiaohongshu' | 'wechat';
+type CaptureType = 'full' | 'visible' | 'selector';
+
+type PresetSnapshot = {
+  request: Partial<CaptureRequest>;
+  captureType: CaptureType;
+};
+
+function getPresetControlledRequest(source: CaptureRequest): Partial<CaptureRequest> {
+  return {
+    format: source.format,
+    width: source.width,
+    height: source.height,
+    deviceScaleFactor: source.deviceScaleFactor,
+    selector: source.selector,
+    pdfMargin: source.pdfMargin,
+    pdfBreakAvoidSelectors: source.pdfBreakAvoidSelectors,
+    splitLongImage: source.splitLongImage,
+    splitMaxHeight: source.splitMaxHeight,
+  };
+}
 
 export function generateHtmlFromMarkdown(mdText: string, theme: MarkdownTheme, customTemplate?: string, enableToc: boolean = false): string {
   try {
@@ -630,6 +651,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mdFileInputRef = useRef<HTMLInputElement>(null);
   const customTemplateInputRef = useRef<HTMLInputElement>(null);
+  const [platformPreset, setPlatformPreset] = useState<PlatformPreset>('custom');
 
   const [request, setRequest] = useState<CaptureRequest>({
     url: '',
@@ -644,13 +666,101 @@ export default function App() {
     splitMaxHeight: 12000,
   });
   
-  const [captureType, setCaptureType] = useState<'full' | 'visible' | 'selector'>('full');
+  const [captureType, setCaptureType] = useState<CaptureType>('full');
+  const customPresetSnapshotRef = useRef<PresetSnapshot>({
+    request: {
+      format: 'png',
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 2,
+      pdfMargin: '0px',
+      splitLongImage: false,
+      splitMaxHeight: 12000,
+    },
+    captureType: 'full',
+  });
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultType, setResultType] = useState<'image' | 'pdf' | 'zip' | null>(null);
   const [splitPartCount, setSplitPartCount] = useState<number | null>(null);
+
+  const applyPlatformPreset = (preset: PlatformPreset) => {
+    if (preset === 'custom') {
+      const snapshot = customPresetSnapshotRef.current;
+      setPlatformPreset('custom');
+      setCaptureType(snapshot.captureType);
+      setRequest((prev) => ({
+        ...prev,
+        ...snapshot.request,
+      }));
+      return;
+    }
+
+    if (platformPreset === 'custom') {
+      customPresetSnapshotRef.current = {
+        request: getPresetControlledRequest(request),
+        captureType,
+      };
+    }
+
+    setPlatformPreset(preset);
+
+    const presetConfig: Record<Exclude<PlatformPreset, 'custom'>, Partial<CaptureRequest>> = {
+      weibo: {
+        format: 'png',
+        width: 680,
+        height: 1080,
+        deviceScaleFactor: 2,
+        splitLongImage: true,
+        splitMaxHeight: 12000,
+      },
+      xiaohongshu: {
+        format: 'png',
+        width: 620,
+        height: 1080,
+        deviceScaleFactor: 2,
+        splitLongImage: true,
+        splitMaxHeight: 9000,
+      },
+      wechat: {
+        format: 'png',
+        width: 740,
+        height: 1080,
+        deviceScaleFactor: 2,
+        splitLongImage: true,
+        splitMaxHeight: 14000,
+      },
+    };
+
+    setCaptureType('full');
+    setRequest((prev) => ({
+      ...prev,
+      ...presetConfig[preset],
+    }));
+  };
+
+  const updateRequestManually = (patch: Partial<CaptureRequest>) => {
+    setPlatformPreset('custom');
+    setRequest((prev) => {
+      const next = { ...prev, ...patch };
+      customPresetSnapshotRef.current = {
+        request: getPresetControlledRequest(next),
+        captureType,
+      };
+      return next;
+    });
+  };
+
+  const updateCaptureTypeManually = (type: CaptureType) => {
+    setPlatformPreset('custom');
+    customPresetSnapshotRef.current = {
+      request: getPresetControlledRequest(request),
+      captureType: type,
+    };
+    setCaptureType(type);
+  };
 
   const livePreviewHtml = useMemo(() => {
     if (inputMode === 'url') return '';
@@ -1138,6 +1248,36 @@ export default function App() {
                 </div>
               )}
 
+              {/* Publishing Presets */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.platformPreset}</label>
+                <p className="text-xs text-gray-400 mb-2">{t.platformPresetDesc}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { id: 'custom', label: t.presetCustom, desc: t.presetCustomDesc },
+                    { id: 'weibo', label: t.presetWeibo, desc: t.presetWeiboDesc },
+                    { id: 'xiaohongshu', label: t.presetXiaohongshu, desc: t.presetXiaohongshuDesc },
+                    { id: 'wechat', label: t.presetWechat, desc: t.presetWechatDesc },
+                  ] as Array<{ id: PlatformPreset; label: string; desc: string }>).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPlatformPreset(preset.id)}
+                      className={`text-left p-3 rounded-lg border transition-all ${
+                        platformPreset === preset.id
+                          ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm'
+                          : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="block text-sm font-semibold">{preset.label}</span>
+                      <span className={`block text-xs mt-1 ${platformPreset === preset.id ? 'text-blue-600/75' : 'text-gray-400'}`}>
+                        {preset.desc}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Format Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">{t.outputFormat}</label>
@@ -1146,7 +1286,7 @@ export default function App() {
                     <button
                       key={fmt}
                       type="button"
-                      onClick={() => setRequest({ ...request, format: fmt })}
+                      onClick={() => updateRequestManually({ format: fmt })}
                       className={`flex flex-col items-center justify-center p-3 rounded-lg border text-sm uppercase tracking-wide font-medium transition-colors ${
                         request.format === fmt
                           ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -1170,7 +1310,7 @@ export default function App() {
                         type="radio"
                         name="captureType"
                         checked={captureType === 'full'}
-                        onChange={() => setCaptureType('full')}
+                        onChange={() => updateCaptureTypeManually('full')}
                         className="w-4 h-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300"
                       />
                       <div className="ml-3 flex flex-col">
@@ -1183,7 +1323,7 @@ export default function App() {
                         type="radio"
                         name="captureType"
                         checked={captureType === 'visible'}
-                        onChange={() => setCaptureType('visible')}
+                        onChange={() => updateCaptureTypeManually('visible')}
                         className="w-4 h-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300"
                       />
                       <div className="ml-3 flex flex-col">
@@ -1196,7 +1336,7 @@ export default function App() {
                         type="radio"
                         name="captureType"
                         checked={captureType === 'selector'}
-                        onChange={() => setCaptureType('selector')}
+                        onChange={() => updateCaptureTypeManually('selector')}
                         className="w-4 h-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300"
                       />
                       <div className="ml-3 flex flex-col w-full">
@@ -1207,7 +1347,7 @@ export default function App() {
                             type="text"
                             placeholder=".article-content, #main-header"
                             value={request.selector || ''}
-                            onChange={(e) => setRequest({ ...request, selector: e.target.value })}
+                            onChange={(e) => updateRequestManually({ selector: e.target.value })}
                             className="mt-2 block w-full px-3 py-2 border border-gray-200 rounded-md sm:text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                             onClick={(e) => e.stopPropagation()}
                           />
@@ -1233,7 +1373,7 @@ export default function App() {
                         <button
                           key={margin.value}
                           type="button"
-                          onClick={() => setRequest({ ...request, pdfMargin: margin.value })}
+                          onClick={() => updateRequestManually({ pdfMargin: margin.value })}
                           className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                             request.pdfMargin === margin.value
                               ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -1252,7 +1392,7 @@ export default function App() {
                       type="text"
                       placeholder=".card, .article-section"
                       value={request.pdfBreakAvoidSelectors || ''}
-                      onChange={(e) => setRequest({ ...request, pdfBreakAvoidSelectors: e.target.value })}
+                      onChange={(e) => updateRequestManually({ pdfBreakAvoidSelectors: e.target.value })}
                       className="block w-full px-3 py-2 border border-gray-200 rounded-md sm:text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-400 mt-1">{t.pdfBreakAvoidSelectorsDesc}</p>
@@ -1271,7 +1411,7 @@ export default function App() {
                     <input
                       type="number"
                       value={request.width}
-                      onChange={(e) => setRequest({ ...request, width: parseInt(e.target.value) || 1920 })}
+                      onChange={(e) => updateRequestManually({ width: parseInt(e.target.value) || 1920 })}
                       className="block w-full px-3 py-2 bg-transparent sm:text-sm outline-none"
                     />
                   </div>
@@ -1280,7 +1420,7 @@ export default function App() {
                     <input
                       type="number"
                       value={request.height}
-                      onChange={(e) => setRequest({ ...request, height: parseInt(e.target.value) || 1080 })}
+                      onChange={(e) => updateRequestManually({ height: parseInt(e.target.value) || 1080 })}
                       className="block w-full px-3 py-2 bg-transparent sm:text-sm outline-none"
                     />
                   </div>
@@ -1300,7 +1440,7 @@ export default function App() {
                     <button
                       key={level.value}
                       type="button"
-                      onClick={() => setRequest({ ...request, deviceScaleFactor: level.value })}
+                      onClick={() => updateRequestManually({ deviceScaleFactor: level.value })}
                       className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
                         request.deviceScaleFactor === level.value
                           ? 'border-blue-600 bg-blue-50 text-blue-700'
@@ -1319,7 +1459,7 @@ export default function App() {
                     <input
                       type="checkbox"
                       checked={!!request.splitLongImage}
-                      onChange={(e) => setRequest({ ...request, splitLongImage: e.target.checked })}
+                      onChange={(e) => updateRequestManually({ splitLongImage: e.target.checked })}
                       className="w-4 h-4 mt-0.5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
                     <span className="flex-1">
@@ -1337,7 +1477,7 @@ export default function App() {
                           min={2000}
                           step={500}
                           value={request.splitMaxHeight || 12000}
-                          onChange={(e) => setRequest({ ...request, splitMaxHeight: parseInt(e.target.value) || 12000 })}
+                          onChange={(e) => updateRequestManually({ splitMaxHeight: parseInt(e.target.value) || 12000 })}
                           className="block w-full px-3 py-2 bg-transparent sm:text-sm outline-none"
                         />
                         <span className="pr-3 text-xs text-gray-400">px</span>
