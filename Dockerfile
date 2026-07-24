@@ -9,6 +9,11 @@ RUN apt-get update \
 
 WORKDIR /app
 
+# 【修复关键点】：必须在 npm install 之前设置环境变量，阻止 Puppeteer 下载自带浏览器
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
 # 复制依赖文件并安装 (利用缓存机制加快后续构建)
 COPY package.json ./
 # 如果你有 package-lock.json，把下面这行注释打开
@@ -18,10 +23,6 @@ RUN npm install
 # 复制所有源代码并执行打包
 COPY . .
 RUN npm run build
-
-# 告诉 Puppeteer 直接使用系统安装的 Chromium，不要自己去下载
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # 暴露端口 (请确保你的 server.ts 监听的是 process.env.PORT)
 EXPOSE 3000
