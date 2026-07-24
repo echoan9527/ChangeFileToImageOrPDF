@@ -24,6 +24,9 @@ RUN npm install
 COPY . .
 RUN npm run build
 
+# 明确指定当前为生产环境（新增这一行！）
+ENV NODE_ENV=production
+
 # 暴露端口 (请确保你的 server.ts 监听的是 process.env.PORT)
 EXPOSE 3000
 
