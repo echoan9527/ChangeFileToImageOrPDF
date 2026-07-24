@@ -1,11 +1,18 @@
-import express from 'express';
-import path from 'path';
-import puppeteer, { type ElementHandle, type Page } from 'puppeteer';
-import sharp from 'sharp';
-import { createServer as createViteServer } from 'vite';
+import express from "express";
+import path from "path";
+import puppeteer, { type ElementHandle, type Page } from "puppeteer";
+import sharp from "sharp";
+import { createServer as createViteServer } from "vite";
 
-type ImageFormat = 'png' | 'jpeg';
-type CaptureStrategy = 'native-fullpage' | 'clipped-chunks' | 'native-element' | 'clipped-element' | 'split-smart' | 'viewport' | 'pdf';
+type ImageFormat = "png" | "jpeg";
+type CaptureStrategy =
+  | "native-fullpage"
+  | "clipped-chunks"
+  | "native-element"
+  | "clipped-element"
+  | "split-smart"
+  | "viewport"
+  | "pdf";
 
 interface CaptureArea {
   x: number;
@@ -35,7 +42,7 @@ interface WatermarkOptions {
   text?: string;
   logo?: string;
   qr?: string;
-  position?: 'top' | 'bottom';
+  position?: "top" | "bottom";
 }
 
 const MAX_CHUNK_PHYSICAL_HEIGHT = 8000;
@@ -47,25 +54,25 @@ async function getPageHeight(page: Page) {
       document.documentElement.scrollHeight,
       document.documentElement.offsetHeight,
       document.body.scrollHeight,
-      document.body.offsetHeight
+      document.body.offsetHeight,
     );
   });
 }
 
 function escapeXml(value: string) {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function bufferFromDataUrl(dataUrl?: string) {
   if (!dataUrl) return null;
   const match = dataUrl.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
   if (!match) return null;
-  return Buffer.from(match[1], 'base64');
+  return Buffer.from(match[1], "base64");
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -92,7 +99,11 @@ function estimateTextWidth(value: string, fontSize: number) {
   return Math.ceil(units * fontSize);
 }
 
-async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: ImageFormat, options?: WatermarkOptions) {
+async function applySignatureWatermark(
+  buffer: Buffer | Uint8Array,
+  format: ImageFormat,
+  options?: WatermarkOptions,
+) {
   if (!options?.enabled) {
     return buffer;
   }
@@ -106,8 +117,8 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
     return input;
   }
 
-  const nameRaw = options.name?.trim() || '';
-  const textRaw = options.text?.trim() || '';
+  const nameRaw = options.name?.trim() || "";
+  const textRaw = options.text?.trim() || "";
   const logoBuffer = bufferFromDataUrl(options.logo);
   const qrBuffer = bufferFromDataUrl(options.qr);
   const hasName = !!nameRaw;
@@ -119,7 +130,7 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
     return input;
   }
 
-  const position = options.position === 'top' ? 'top' : 'bottom';
+  const position = options.position === "top" ? "top" : "bottom";
   const footerHeight = Math.round(clamp(width * 0.12, 150, 260));
   const paddingX = Math.round(clamp(width * 0.045, 44, 96));
   const avatarSize = Math.round(clamp(footerHeight * 0.52, 56, 120));
@@ -137,16 +148,26 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
   const trailingGap = showText && hasQr ? gap : 0;
   const measuredTextWidth = Math.max(
     hasName ? estimateTextWidth(nameRaw, nameFontSize) : 0,
-    hasText ? estimateTextWidth(textRaw, textFontSize) : 0
+    hasText ? estimateTextWidth(textRaw, textFontSize) : 0,
   );
-  let textBlockWidth = showText ? Math.round(clamp(measuredTextWidth, 120, 460)) : 0;
+  let textBlockWidth = showText
+    ? Math.round(clamp(measuredTextWidth, 120, 460))
+    : 0;
 
   if (showText) {
     const nonTextWidth = avatarWidth + leadingGap + trailingGap + qrWidth;
-    textBlockWidth = Math.min(textBlockWidth, Math.max(140, availableWidth - nonTextWidth));
+    textBlockWidth = Math.min(
+      textBlockWidth,
+      Math.max(140, availableWidth - nonTextWidth),
+    );
   }
 
-  const totalWidth = avatarWidth + leadingGap + (showText ? textBlockWidth : 0) + trailingGap + qrWidth;
+  const totalWidth =
+    avatarWidth +
+    leadingGap +
+    (showText ? textBlockWidth : 0) +
+    trailingGap +
+    qrWidth;
   const startX = Math.max(paddingX, Math.round((width - totalWidth) / 2));
   const centerY = Math.round(footerHeight / 2);
   const avatarTop = Math.round((footerHeight - avatarSize) / 2);
@@ -171,15 +192,23 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
     qrLeft = cursorX;
   }
 
-  const lineY = position === 'top' ? footerHeight - 0.5 : 0.5;
-  const nameY = showText && hasName && hasText ? centerY - Math.round((textFontSize + lineGap) / 2) : centerY;
-  const textY = showText && hasName && hasText ? centerY + Math.round((nameFontSize + lineGap) / 2) : centerY;
-  const nameLengthAttr = hasName && estimateTextWidth(nameRaw, nameFontSize) > textBlockWidth
-    ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
-    : '';
-  const textLengthAttr = hasText && estimateTextWidth(textRaw, textFontSize) > textBlockWidth
-    ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
-    : '';
+  const lineY = position === "top" ? footerHeight - 0.5 : 0.5;
+  const nameY =
+    showText && hasName && hasText
+      ? centerY - Math.round((textFontSize + lineGap) / 2)
+      : centerY;
+  const textY =
+    showText && hasName && hasText
+      ? centerY + Math.round((nameFontSize + lineGap) / 2)
+      : centerY;
+  const nameLengthAttr =
+    hasName && estimateTextWidth(nameRaw, nameFontSize) > textBlockWidth
+      ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
+      : "";
+  const textLengthAttr =
+    hasText && estimateTextWidth(textRaw, textFontSize) > textBlockWidth
+      ? ` textLength="${textBlockWidth}" lengthAdjust="spacingAndGlyphs"`
+      : "";
   const footerSvg = Buffer.from(`
     <svg width="${width}" height="${footerHeight}" xmlns="http://www.w3.org/2000/svg">
       <rect width="100%" height="100%" fill="#ffffff"/>
@@ -187,12 +216,12 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
       ${
         showText && hasName
           ? `<text x="${textLeft}" y="${nameY}" dominant-baseline="middle" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${nameFontSize}" font-weight="700" fill="#111827"${nameLengthAttr}>${escapeXml(nameRaw)}</text>`
-          : ''
+          : ""
       }
       ${
         showText && hasText
           ? `<text x="${textLeft}" y="${textY}" dominant-baseline="middle" font-family="Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="${textFontSize}" font-weight="500" fill="#6b7280"${textLengthAttr}>${escapeXml(textRaw)}</text>`
-          : ''
+          : ""
       }
     </svg>
   `);
@@ -200,50 +229,50 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
   const composites: Array<{ input: Buffer; top: number; left: number }> = [
     {
       input: footerSvg,
-      top: position === 'top' ? 0 : height,
+      top: position === "top" ? 0 : height,
       left: 0,
     },
   ];
 
   if (hasLogo) {
     const logo = await sharp(logoBuffer!)
-      .resize(avatarSize, avatarSize, { fit: 'cover' })
+      .resize(avatarSize, avatarSize, { fit: "cover" })
       .png()
       .toBuffer();
     composites.push({
       input: logo,
-      top: position === 'top' ? avatarTop : height + avatarTop,
+      top: position === "top" ? avatarTop : height + avatarTop,
       left: avatarLeft,
     });
   } else if (hasName) {
     const placeholder = Buffer.from(`
       <svg width="${avatarSize}" height="${avatarSize}" xmlns="http://www.w3.org/2000/svg">
         <rect width="100%" height="100%" rx="${Math.round(avatarSize * 0.22)}" fill="#eff6ff"/>
-        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, system-ui, sans-serif" font-size="${Math.round(avatarSize * 0.42)}" font-weight="800" fill="#2563eb">${escapeXml(nameRaw.replace(/^@/, '').slice(0, 1).toUpperCase() || 'A')}</text>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Inter, system-ui, sans-serif" font-size="${Math.round(avatarSize * 0.42)}" font-weight="800" fill="#2563eb">${escapeXml(nameRaw.replace(/^@/, "").slice(0, 1).toUpperCase() || "A")}</text>
       </svg>
     `);
     composites.push({
       input: placeholder,
-      top: position === 'top' ? avatarTop : height + avatarTop,
+      top: position === "top" ? avatarTop : height + avatarTop,
       left: avatarLeft,
     });
   }
 
   if (hasQr && qrBuffer) {
     const qr = await sharp(qrBuffer)
-      .resize(qrSize, qrSize, { fit: 'contain', background: '#ffffff' })
+      .resize(qrSize, qrSize, { fit: "contain", background: "#ffffff" })
       .png()
       .toBuffer();
     composites.push({
       input: qr,
-      top: position === 'top' ? qrTop : height + qrTop,
+      top: position === "top" ? qrTop : height + qrTop,
       left: qrLeft,
     });
   }
 
   return sharp(input)
     .extend(
-      position === 'top'
+      position === "top"
         ? {
             top: footerHeight,
             background: { r: 255, g: 255, b: 255, alpha: 1 },
@@ -251,10 +280,13 @@ async function applySignatureWatermark(buffer: Buffer | Uint8Array, format: Imag
         : {
             bottom: footerHeight,
             background: { r: 255, g: 255, b: 255, alpha: 1 },
-          }
+          },
     )
     .composite(composites)
-    .toFormat(format === 'jpeg' ? 'jpeg' : 'png', format === 'jpeg' ? { quality: 92 } : {})
+    .toFormat(
+      format === "jpeg" ? "jpeg" : "png",
+      format === "jpeg" ? { quality: 92 } : {},
+    )
     .toBuffer();
 }
 
@@ -344,11 +376,14 @@ function createZip(files: ZipFile[]) {
   return Buffer.concat([...localParts, centralDirectory, end]);
 }
 
-async function getSmartSplitHints(page: Page, options: {
-  baseY: number;
-  totalHeight: number;
-  selector?: string;
-}): Promise<{ points: SplitPoint[]; avoidRanges: AvoidRange[] }> {
+async function getSmartSplitHints(
+  page: Page,
+  options: {
+    baseY: number;
+    totalHeight: number;
+    selector?: string;
+  },
+): Promise<{ points: SplitPoint[]; avoidRanges: AvoidRange[] }> {
   const serializedOptions = JSON.stringify(options);
 
   return page.evaluate(`
@@ -423,7 +458,13 @@ function isInsideAvoidRange(y: number, avoidRanges: AvoidRange[]) {
   return avoidRanges.some((range) => y > range.start && y < range.end);
 }
 
-function moveCutOutsideAvoidRange(y: number, cursor: number, target: number, minPartHeight: number, avoidRanges: AvoidRange[]) {
+function moveCutOutsideAvoidRange(
+  y: number,
+  cursor: number,
+  target: number,
+  minPartHeight: number,
+  avoidRanges: AvoidRange[],
+) {
   const range = avoidRanges.find((item) => y > item.start && y < item.end);
   if (!range) return y;
 
@@ -463,13 +504,30 @@ function buildSmartSplitRanges(options: {
     const target = cursor + maxPartHeight;
     const sectionCut = [...points]
       .reverse()
-      .find((point) => point.priority >= 90 && point.y > cursor + minPartHeight && point.y <= target);
+      .find(
+        (point) =>
+          point.priority >= 90 &&
+          point.y > cursor + minPartHeight &&
+          point.y <= target,
+      );
     const softCut = [...points]
       .reverse()
-      .find((point) => point.priority < 90 && point.y > cursor + minPartHeight && point.y <= target && !isInsideAvoidRange(point.y, avoidRanges));
+      .find(
+        (point) =>
+          point.priority < 90 &&
+          point.y > cursor + minPartHeight &&
+          point.y <= target &&
+          !isInsideAvoidRange(point.y, avoidRanges),
+      );
 
     let cut = sectionCut?.y ?? softCut?.y ?? target;
-    cut = moveCutOutsideAvoidRange(cut, cursor, target, minPartHeight, avoidRanges);
+    cut = moveCutOutsideAvoidRange(
+      cut,
+      cursor,
+      target,
+      minPartHeight,
+      avoidRanges,
+    );
     cut = Math.max(cursor + 1, Math.min(totalHeight, Math.round(cut)));
 
     ranges.push({ start: cursor, end: cut });
@@ -479,11 +537,14 @@ function buildSmartSplitRanges(options: {
   return ranges;
 }
 
-async function captureClippedArea(page: Page, options: {
-  area: CaptureArea;
-  deviceScaleFactor: number;
-  format: ImageFormat;
-}) {
+async function captureClippedArea(
+  page: Page,
+  options: {
+    area: CaptureArea;
+    deviceScaleFactor: number;
+    format: ImageFormat;
+  },
+) {
   const { area, deviceScaleFactor, format } = options;
   const physicalTotalHeight = Math.round(area.height * deviceScaleFactor);
   const physicalWidth = Math.round(area.width * deviceScaleFactor);
@@ -496,13 +557,16 @@ async function captureClippedArea(page: Page, options: {
     });
   }
 
-  const chunkHeight = Math.max(1, Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor));
+  const chunkHeight = Math.max(
+    1,
+    Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor),
+  );
   const chunks: Array<{ input: Buffer; top: number; left: number }> = [];
 
   for (let y = 0; y < area.height; y += chunkHeight) {
     const clipHeight = Math.min(chunkHeight, area.height - y);
     const chunk = await page.screenshot({
-      type: 'png',
+      type: "png",
       clip: {
         x: area.x,
         y: area.y + y,
@@ -528,21 +592,33 @@ async function captureClippedArea(page: Page, options: {
     },
   })
     .composite(chunks)
-    .toFormat(format === 'jpeg' ? 'jpeg' : 'png', format === 'jpeg' ? { quality: 92 } : {})
+    .toFormat(
+      format === "jpeg" ? "jpeg" : "png",
+      format === "jpeg" ? { quality: 92 } : {},
+    )
     .toBuffer();
 }
 
-async function captureSplitImages(page: Page, options: {
-  area: CaptureArea;
-  selector?: string;
-  deviceScaleFactor: number;
-  format: ImageFormat;
-  splitMaxHeight: number;
-  watermark?: WatermarkOptions;
-}) {
+async function captureSplitImages(
+  page: Page,
+  options: {
+    area: CaptureArea;
+    selector?: string;
+    deviceScaleFactor: number;
+    format: ImageFormat;
+    splitMaxHeight: number;
+    watermark?: WatermarkOptions;
+  },
+) {
   const { area, selector, deviceScaleFactor, format, watermark } = options;
-  const maxPhysicalHeight = Math.max(2000, options.splitMaxHeight || DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT);
-  const maxPartHeight = Math.max(1, Math.floor(maxPhysicalHeight / deviceScaleFactor));
+  const maxPhysicalHeight = Math.max(
+    2000,
+    options.splitMaxHeight || DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT,
+  );
+  const maxPartHeight = Math.max(
+    1,
+    Math.floor(maxPhysicalHeight / deviceScaleFactor),
+  );
   const { points, avoidRanges } = await getSmartSplitHints(page, {
     baseY: area.y,
     totalHeight: area.height,
@@ -558,7 +634,7 @@ async function captureSplitImages(page: Page, options: {
   const files: ZipFile[] = [];
 
   console.log(
-    `Splitting ${Math.round(area.height)}px area into ${ranges.length} image parts, max ${maxPhysicalHeight}px physical height each...`
+    `Splitting ${Math.round(area.height)}px area into ${ranges.length} image parts, max ${maxPhysicalHeight}px physical height each...`,
   );
 
   for (const [index, range] of ranges.entries()) {
@@ -572,26 +648,33 @@ async function captureSplitImages(page: Page, options: {
       deviceScaleFactor,
       format,
     });
-    const finalBuffer = await applySignatureWatermark(buffer, format, watermark);
+    const finalBuffer = await applySignatureWatermark(
+      buffer,
+      format,
+      watermark,
+    );
 
     files.push({
-      name: `part-${String(index + 1).padStart(pad, '0')}.${format}`,
+      name: `part-${String(index + 1).padStart(pad, "0")}.${format}`,
       data: Buffer.from(finalBuffer),
     });
   }
 
   return {
     buffer: createZip(files),
-    strategy: 'split-smart' as const,
+    strategy: "split-smart" as const,
     partCount: files.length,
   };
 }
 
-async function captureFullPageImage(page: Page, options: {
-  width: number;
-  deviceScaleFactor: number;
-  format: ImageFormat;
-}): Promise<{ buffer: Buffer | Uint8Array; strategy: CaptureStrategy }> {
+async function captureFullPageImage(
+  page: Page,
+  options: {
+    width: number;
+    deviceScaleFactor: number;
+    format: ImageFormat;
+  },
+): Promise<{ buffer: Buffer | Uint8Array; strategy: CaptureStrategy }> {
   const { width, deviceScaleFactor, format } = options;
   const pageHeight = await getPageHeight(page);
   const physicalTotalHeight = Math.round(pageHeight * deviceScaleFactor);
@@ -599,21 +682,24 @@ async function captureFullPageImage(page: Page, options: {
   if (physicalTotalHeight <= MAX_CHUNK_PHYSICAL_HEIGHT) {
     return {
       buffer: await page.screenshot({ type: format, fullPage: true }),
-      strategy: 'native-fullpage',
+      strategy: "native-fullpage",
     };
   }
 
-  const chunkHeight = Math.max(1, Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor));
+  const chunkHeight = Math.max(
+    1,
+    Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor),
+  );
   const chunks: Array<{ input: Buffer; top: number; left: number }> = [];
 
   console.log(
-    `Page height ${pageHeight}px @${deviceScaleFactor}x exceeds safe limit, using clipped chunk capture...`
+    `Page height ${pageHeight}px @${deviceScaleFactor}x exceeds safe limit, using clipped chunk capture...`,
   );
 
   for (let y = 0; y < pageHeight; y += chunkHeight) {
     const clipHeight = Math.min(chunkHeight, pageHeight - y);
     const chunk = await page.screenshot({
-      type: 'png',
+      type: "png",
       clip: {
         x: 0,
         y,
@@ -641,22 +727,28 @@ async function captureFullPageImage(page: Page, options: {
     },
   })
     .composite(chunks)
-    .toFormat(format === 'jpeg' ? 'jpeg' : 'png', format === 'jpeg' ? { quality: 92 } : {})
+    .toFormat(
+      format === "jpeg" ? "jpeg" : "png",
+      format === "jpeg" ? { quality: 92 } : {},
+    )
     .toBuffer();
 
-  return { buffer, strategy: 'clipped-chunks' };
+  return { buffer, strategy: "clipped-chunks" };
 }
 
-async function captureElementImage(element: ElementHandle<Element>, options: {
-  page: Page;
-  deviceScaleFactor: number;
-  format: ImageFormat;
-}) {
+async function captureElementImage(
+  element: ElementHandle<Element>,
+  options: {
+    page: Page;
+    deviceScaleFactor: number;
+    format: ImageFormat;
+  },
+) {
   const { page, deviceScaleFactor, format } = options;
   const box = await element.boundingBox();
 
   if (!box) {
-    throw new Error('Selected element is not visible or has no layout box');
+    throw new Error("Selected element is not visible or has no layout box");
   }
 
   const physicalTotalHeight = Math.round(box.height * deviceScaleFactor);
@@ -664,21 +756,24 @@ async function captureElementImage(element: ElementHandle<Element>, options: {
   if (physicalTotalHeight <= MAX_CHUNK_PHYSICAL_HEIGHT) {
     return {
       buffer: await element.screenshot({ type: format }),
-      strategy: 'native-element' as const,
+      strategy: "native-element" as const,
     };
   }
 
-  const chunkHeight = Math.max(1, Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor));
+  const chunkHeight = Math.max(
+    1,
+    Math.floor(MAX_CHUNK_PHYSICAL_HEIGHT / deviceScaleFactor),
+  );
   const chunks: Array<{ input: Buffer; top: number; left: number }> = [];
 
   console.log(
-    `Element height ${box.height}px @${deviceScaleFactor}x exceeds safe limit, using clipped element capture...`
+    `Element height ${box.height}px @${deviceScaleFactor}x exceeds safe limit, using clipped element capture...`,
   );
 
   for (let y = 0; y < box.height; y += chunkHeight) {
     const clipHeight = Math.min(chunkHeight, box.height - y);
     const chunk = await page.screenshot({
-      type: 'png',
+      type: "png",
       clip: {
         x: box.x,
         y: box.y + y,
@@ -704,31 +799,34 @@ async function captureElementImage(element: ElementHandle<Element>, options: {
     },
   })
     .composite(chunks)
-    .toFormat(format === 'jpeg' ? 'jpeg' : 'png', format === 'jpeg' ? { quality: 92 } : {})
+    .toFormat(
+      format === "jpeg" ? "jpeg" : "png",
+      format === "jpeg" ? { quality: 92 } : {},
+    )
     .toBuffer();
 
-  return { buffer, strategy: 'clipped-element' as const };
+  return { buffer, strategy: "clipped-element" as const };
 }
 
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '0.0.0.0';
+  const HOST = process.env.HOST || "0.0.0.0";
 
-  app.use(express.json({ limit: '50mb' }));
+  app.use(express.json({ limit: "50mb" }));
 
-  app.post('/api/capture', async (req, res) => {
+  app.post("/api/capture", async (req, res) => {
     const {
       url,
       htmlContent,
-      format = 'png',
+      format = "png",
       fullPage = true,
       selector,
       width = 1920,
       height = 1080,
       deviceScaleFactor = 1,
       pdfBreakAvoidSelectors,
-      pdfMargin = '0px',
+      pdfMargin = "0px",
       splitLongImage = false,
       splitMaxHeight = DEFAULT_SPLIT_MAX_PHYSICAL_HEIGHT,
       watermarkEnabled = false,
@@ -736,7 +834,7 @@ async function startServer() {
       watermarkText,
       watermarkLogo,
       watermarkQr,
-      watermarkPosition = 'bottom',
+      watermarkPosition = "bottom",
     } = req.body;
     const watermark: WatermarkOptions = {
       enabled: watermarkEnabled,
@@ -744,34 +842,46 @@ async function startServer() {
       text: watermarkText,
       logo: watermarkLogo,
       qr: watermarkQr,
-      position: watermarkPosition === 'top' ? 'top' : 'bottom',
+      position: watermarkPosition === "top" ? "top" : "bottom",
     };
 
     if (!url && !htmlContent) {
-      return res.status(400).json({ error: 'URL or HTML Content is required' });
+      return res.status(400).json({ error: "URL or HTML Content is required" });
     }
 
     let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
 
     try {
       browser = await puppeteer.launch({
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+        ],
         headless: true,
       });
 
       const page = await browser.newPage();
-      await page.setViewport({ width, height: height || 1080, deviceScaleFactor });
+      await page.setViewport({
+        width,
+        height: height || 1080,
+        deviceScaleFactor,
+      });
 
       if (htmlContent) {
-        await page.setContent(htmlContent, { waitUntil: 'networkidle0' as any, timeout: 30000 });
+        await page.setContent(htmlContent, {
+          waitUntil: "networkidle0" as any,
+          timeout: 30000,
+        });
       } else {
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
       }
 
       let resultBuffer;
       let contentType;
 
-      if (format === 'pdf') {
+      if (format === "pdf") {
         // Auto-inject print styles to prevent page breaks inside elements
         let printStyleContent = `
             @media print {
@@ -785,9 +895,9 @@ async function startServer() {
               }
             }
           `;
-          
+
         if (pdfBreakAvoidSelectors) {
-           printStyleContent += `
+          printStyleContent += `
              @media print {
                ${pdfBreakAvoidSelectors} {
                  page-break-inside: avoid !important;
@@ -799,17 +909,23 @@ async function startServer() {
         }
 
         await page.addStyleTag({
-          content: printStyleContent
+          content: printStyleContent,
         });
 
         resultBuffer = await page.pdf({
-          format: 'A4',
+          format: "A4",
           printBackground: true,
-          margin: { top: pdfMargin, bottom: pdfMargin, left: pdfMargin, right: pdfMargin }
+          margin: {
+            top: pdfMargin,
+            bottom: pdfMargin,
+            left: pdfMargin,
+            right: pdfMargin,
+          },
         });
-        contentType = 'application/pdf';
-        res.setHeader('X-Capture-Strategy', 'pdf');
-      } else { // png or jpeg
+        contentType = "application/pdf";
+        res.setHeader("X-Capture-Strategy", "pdf");
+      } else {
+        // png or jpeg
         if (selector) {
           try {
             await page.waitForSelector(selector, { timeout: 5000 });
@@ -820,7 +936,9 @@ async function startServer() {
 
             const box = await element.boundingBox();
             if (!box) {
-              throw new Error('Selected element is not visible or has no layout box');
+              throw new Error(
+                "Selected element is not visible or has no layout box",
+              );
             }
 
             const capture = splitLongImage
@@ -838,13 +956,18 @@ async function startServer() {
                   format: format as ImageFormat,
                 });
             resultBuffer = capture.buffer;
-            res.setHeader('X-Capture-Strategy', capture.strategy);
-            if ('partCount' in capture) {
-              res.setHeader('X-Split-Part-Count', String(capture.partCount));
-              res.setHeader('Content-Disposition', 'attachment; filename="screenshot-parts.zip"');
+            res.setHeader("X-Capture-Strategy", capture.strategy);
+            if ("partCount" in capture) {
+              res.setHeader("X-Split-Part-Count", String(capture.partCount));
+              res.setHeader(
+                "Content-Disposition",
+                'attachment; filename="screenshot-parts.zip"',
+              );
             }
           } catch (e: any) {
-             return res.status(400).json({ error: e.message || `Could not capture selector ${selector}` });
+            return res.status(400).json({
+              error: e.message || `Could not capture selector ${selector}`,
+            });
           }
         } else if (fullPage) {
           const capture = splitLongImage
@@ -866,48 +989,65 @@ async function startServer() {
                 format: format as ImageFormat,
               });
           resultBuffer = capture.buffer;
-          res.setHeader('X-Capture-Strategy', capture.strategy);
-          if ('partCount' in capture) {
-            res.setHeader('X-Split-Part-Count', String(capture.partCount));
-            res.setHeader('Content-Disposition', 'attachment; filename="screenshot-parts.zip"');
+          res.setHeader("X-Capture-Strategy", capture.strategy);
+          if ("partCount" in capture) {
+            res.setHeader("X-Split-Part-Count", String(capture.partCount));
+            res.setHeader(
+              "Content-Disposition",
+              'attachment; filename="screenshot-parts.zip"',
+            );
           }
         } else {
-          resultBuffer = await page.screenshot({ type: format as any, fullPage: false });
-          res.setHeader('X-Capture-Strategy', 'viewport');
+          resultBuffer = await page.screenshot({
+            type: format as any,
+            fullPage: false,
+          });
+          res.setHeader("X-Capture-Strategy", "viewport");
         }
         if (!(splitLongImage && (selector || fullPage))) {
-          resultBuffer = await applySignatureWatermark(resultBuffer, format as ImageFormat, watermark);
+          resultBuffer = await applySignatureWatermark(
+            resultBuffer,
+            format as ImageFormat,
+            watermark,
+          );
         }
-        contentType = splitLongImage && (selector || fullPage) ? 'application/zip' : `image/${format}`;
+        contentType =
+          splitLongImage && (selector || fullPage)
+            ? "application/zip"
+            : `image/${format}`;
       }
 
-      res.setHeader('Content-Type', contentType);
+      res.setHeader("Content-Type", contentType);
       res.send(Buffer.from(resultBuffer));
     } catch (error: any) {
-      console.error('Failed to capture:', error);
-      res.status(500).json({ error: 'Failed to capture the webpage: ' + error.message });
+      console.error("Failed to capture:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to capture the webpage: " + error.message });
     } finally {
       await browser?.close();
     }
   });
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, HOST, () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`(Also accessible on your network at http://<your-ip>:${PORT} and locally on http://127.0.0.1:${PORT})`);
+    console.log(
+      `(Also accessible on your network at http://<your-ip>:${PORT} and locally on http://127.0.0.1:${PORT})`,
+    );
   });
 }
 
